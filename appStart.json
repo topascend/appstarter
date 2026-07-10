@@ -1,0 +1,17 @@
+[
+  {
+    "name": "记事本",
+    "path": "C:\\Windows\\notepad.exe",
+    "workdir": "C:\\"
+  },
+  {
+    "name": "navicat",
+    "path": "C:\\Program Files\\PremiumSoft\\Navicat Premium 17\\navicat.exe",
+    "workdir": ""
+  },
+  {
+    "name": "nats",
+    "path": "F:\\stock2026\\stock-data2026\\mybin\\nats\\start.bat",
+    "workdir": "F:\\stock2026\\stock-data2026\\mybin\\nats"
+  }
+]
