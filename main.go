@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -11,7 +12,9 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
+	"time"
 
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
@@ -27,7 +30,8 @@ type App struct {
 const (
 	serviceName = "AppStarterService" // 服务名称
 	logFile     = "appstarter.log"    // 日志文件
-	configFile  = "appStart.json"     // 配置文件
+	configFile  = "appstarter.json"   // 配置文件
+	startDelay  = 3 * time.Second     // 前台模式下逐个启动间隔
 )
 
 var (
@@ -69,16 +73,27 @@ func loadConfig() error {
 }
 
 // 启动单个应用，返回 *exec.Cmd
+var outputMu sync.Mutex
+
+func pipeOutput(prefix string, r io.Reader) {
+	scanner := bufio.NewScanner(r)
+	for scanner.Scan() {
+		outputMu.Lock()
+		logger.Printf("[%s] %s", prefix, scanner.Text())
+		outputMu.Unlock()
+	}
+}
+
 func startApp(app App, foreground bool) (*exec.Cmd, error) {
-	workDir := app.WorkDir
-	if workDir == "" {
+	workDir := filepath.Clean(app.WorkDir)
+	if workDir == "." {
 		var err error
 		workDir, err = os.Getwd()
 		if err != nil {
 			return nil, fmt.Errorf("获取当前目录失败: %v", err)
 		}
 	}
-	cmdPath := app.Path
+	cmdPath := filepath.Clean(app.Path)
 	ext := strings.ToLower(filepath.Ext(cmdPath))
 	var cmd *exec.Cmd
 	if ext == ".bat" || ext == ".cmd" {
@@ -88,15 +103,13 @@ func startApp(app App, foreground bool) (*exec.Cmd, error) {
 	}
 	cmd.Dir = workDir
 
-	// 前台模式下将输出显示到控制台，服务模式下丢弃（或可重定向到日志）
 	if foreground {
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-	} else {
-		cmd.Stdout = nil
-		cmd.Stderr = nil
+		stdout, _ := cmd.StdoutPipe()
+		stderr, _ := cmd.StderrPipe()
+		go pipeOutput(app.Name, stdout)
+		go pipeOutput(app.Name, stderr)
 	}
-	cmd.Stdin = nil // 服务下不交互
+	cmd.Stdin = nil
 
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("启动失败: %v", err)
@@ -109,11 +122,13 @@ func startApp(app App, foreground bool) (*exec.Cmd, error) {
 // 启动全部应用，返回所有 *exec.Cmd 切片
 func startAllApps(foreground bool) ([]*exec.Cmd, error) {
 	var cmds []*exec.Cmd
-	for _, app := range apps {
+	for i, app := range apps {
+		if i > 0 && foreground {
+			time.Sleep(startDelay)
+		}
 		cmd, err := startApp(app, foreground)
 		if err != nil {
 			logger.Printf("启动 %s 失败: %v", app.Name, err)
-			// 继续启动其他应用
 			continue
 		}
 		cmds = append(cmds, cmd)

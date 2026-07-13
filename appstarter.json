@@ -11,7 +11,7 @@
   },
   {
     "name": "nats",
-    "path": "F:\\stock2026\\stock-data2026\\mybin\\nats\\start.bat",
-    "workdir": "F:\\stock2026\\stock-data2026\\mybin\\nats"
+    "path": "E:\\stock2026\\stock-data2026\\mybin\\nats\\start.bat",
+    "workdir": "E:\\stock2026\\stock-data2026\\mybin\\nats"
   }
 ]
