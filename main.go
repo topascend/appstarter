@@ -15,16 +15,19 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unsafe"
 
+	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
 )
 
 // App 配置文件中的应用结构
 type App struct {
-	Name    string `json:"name"`    // 应用名称
-	Path    string `json:"path"`    // 可执行文件路径（.exe / .bat / .cmd）
-	WorkDir string `json:"workdir"` // 工作目录（可选）
+	Name        string `json:"name"`         // 应用名称
+	Path        string `json:"path"`         // 可执行文件路径（.exe / .bat / .cmd）
+	WorkDir     string `json:"workdir"`      // 工作目录（可选）
+	ShowConsole bool   `json:"show_console"` // 前台运行时是否打开独立命令行窗口显示输出
 }
 
 const (
@@ -84,6 +87,70 @@ func pipeOutput(prefix string, r io.Reader) {
 	}
 }
 
+// startWithNewConsole 在独立的命令行窗口中启动程序，输出会显示在该窗口中。
+// 使用 Windows CreateProcess 直接创建，避免 Go os/exec 把标准输出重定向到父进程。
+func startWithNewConsole(name, cmdPath, workDir string) (*exec.Cmd, error) {
+	ext := strings.ToLower(filepath.Ext(cmdPath))
+	var appName, cmdLine string
+
+	if ext == ".bat" || ext == ".cmd" {
+		appName = `C:\Windows\System32\cmd.exe`
+		cmdLine = fmt.Sprintf(`cmd /c "%s"`, cmdPath)
+	} else {
+		appName = cmdPath
+		if strings.Contains(cmdPath, " ") {
+			cmdLine = fmt.Sprintf(`"%s"`, cmdPath)
+		} else {
+			cmdLine = cmdPath
+		}
+	}
+
+	appNamePtr, err := windows.UTF16PtrFromString(appName)
+	if err != nil {
+		return nil, fmt.Errorf("转换应用名失败: %v", err)
+	}
+	cmdLinePtr, err := windows.UTF16PtrFromString(cmdLine)
+	if err != nil {
+		return nil, fmt.Errorf("转换命令行失败: %v", err)
+	}
+
+	var dirPtr *uint16
+	if workDir != "" {
+		dirPtr, err = windows.UTF16PtrFromString(workDir)
+		if err != nil {
+			return nil, fmt.Errorf("转换工作目录失败: %v", err)
+		}
+	}
+
+	var si windows.StartupInfo
+	si.Cb = uint32(unsafe.Sizeof(si))
+	// 不设置 STARTF_USESTDHANDLES，让新控制台使用默认标准句柄
+	var pi windows.ProcessInformation
+
+	if err := windows.CreateProcess(
+		appNamePtr,
+		cmdLinePtr,
+		nil, nil,
+		false,
+		windows.CREATE_NEW_CONSOLE,
+		nil,
+		dirPtr,
+		&si,
+		&pi,
+	); err != nil {
+		return nil, fmt.Errorf("CreateProcess 失败: %v", err)
+	}
+
+	windows.CloseHandle(pi.Thread)
+	proc, err := os.FindProcess(int(pi.ProcessId))
+	windows.CloseHandle(pi.Process)
+	if err != nil {
+		return nil, fmt.Errorf("查找进程失败: %v", err)
+	}
+
+	return &exec.Cmd{Process: proc}, nil
+}
+
 func startApp(app App, foreground bool) (*exec.Cmd, error) {
 	workDir := filepath.Clean(app.WorkDir)
 	if workDir == "." {
@@ -94,6 +161,17 @@ func startApp(app App, foreground bool) (*exec.Cmd, error) {
 		}
 	}
 	cmdPath := filepath.Clean(app.Path)
+
+	if foreground && app.ShowConsole {
+		cmd, err := startWithNewConsole(app.Name, cmdPath, workDir)
+		if err != nil {
+			return nil, fmt.Errorf("启动失败: %v", err)
+		}
+		logger.Printf("启动应用: %s, 路径: %s, 工作目录: %s, 显示控制台: true, PID: %d",
+			app.Name, cmdPath, workDir, cmd.Process.Pid)
+		return cmd, nil
+	}
+
 	ext := strings.ToLower(filepath.Ext(cmdPath))
 	var cmd *exec.Cmd
 	if ext == ".bat" || ext == ".cmd" {
@@ -114,7 +192,7 @@ func startApp(app App, foreground bool) (*exec.Cmd, error) {
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("启动失败: %v", err)
 	}
-	logger.Printf("启动应用: %s, 路径: %s, 工作目录: %s, PID: %d",
+	logger.Printf("启动应用: %s, 路径: %s, 工作目录: %s, 显示控制台: false, PID: %d",
 		app.Name, cmdPath, workDir, cmd.Process.Pid)
 	return cmd, nil
 }

@@ -42,7 +42,8 @@ json
   {
     "name": "InitScript",
     "path": "C:\\scripts\\setup.bat",
-    "workdir": "C:\\scripts"
+    "workdir": "C:\\scripts",
+    "show_console": true
   }
 ]
 ```
@@ -62,7 +63,7 @@ appstarter.exe run
 ```
 appstarter.exe
 ```
-此时所有应用同时启动，输出打印到控制台。按 Ctrl+C 会终止所有子进程并退出。
+此时所有应用同时启动，输出打印到控制台。若某个应用设置 show_console 为 true，则会为其单独打开一个命令行窗口显示输出。按 Ctrl+C 会终止所有子进程并退出。
 
 ### 🔹 安装为 Windows 服务（需管理员权限）
 以管理员身份运行命令提示符
@@ -120,6 +121,8 @@ name：字符串，便于识别。
 path：字符串，支持反斜杠转义（\\）或正斜杠 /。
 
 workdir：字符串，为空时默认使用程序启动目录（服务模式下为 C:\Windows\System32，建议明确指定）。
+
+show_console：布尔值，可选，默认 false。仅在前台运行（run）时生效；设为 true 会为该应用单独打开一个命令行窗口，并把该应用的 stdout/stderr 输出显示在这个新窗口中（服务模式忽略此选项）。
 
 常见问题（FAQ）
 Q：为什么服务启动后，我的应用没有运行？

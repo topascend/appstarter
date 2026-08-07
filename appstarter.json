@@ -2,16 +2,31 @@
   {
     "name": "记事本",
     "path": "C:\\Windows\\notepad.exe",
-    "workdir": "C:\\"
+    "workdir": "C:\\",
+    "show_console": false
   },
   {
     "name": "navicat",
-    "path": "C:\\Program Files\\PremiumSoft\\Navicat Premium 17\\navicat.exe",
-    "workdir": ""
+    "path": "D:\\Program Files\\PremiumSoft\\Navicat Premium 17\\navicat.exe",
+    "workdir": "",
+    "show_console": false
+  },
+  {
+    "name": "3DImage",
+    "path": "E:\\H\\MyGo\\wailsTest\\3DImage\\build\\bin\\3DImage.exe",
+    "workdir": "E:\\H\\MyGo\\wailsTest\\3DImage\\build\\bin",
+    "show_console": true
+  },
+  {
+    "name": "loveLn",
+    "path": "E:\\MyGo2\\loveLN2\\bin\\v2.0.0\\windows_amd64\\loveLn.exe",
+    "workdir": "E:\\MyGo2\\loveLN2\\bin\\v2.0.0\\windows_amd64",
+    "show_console": true
   },
   {
     "name": "nats",
-    "path": "E:\\stock2026\\stock-data2026\\mybin\\nats\\start.bat",
-    "workdir": "E:\\stock2026\\stock-data2026\\mybin\\nats"
+    "path": "E:\\mygo\\appstarter\\test.bat",
+    "workdir": "E:\\mygo\\appstarter",
+    "show_console": true
   }
 ]
