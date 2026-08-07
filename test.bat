@@ -1,44 +1,40 @@
-﻿@echo off
+@echo off
 setlocal enabledelayedexpansion
-title 计算机信息报告
-color 0A
+title 计算机信息报�?color 0A
 echo ============================================================
-echo                   计算机信息报告
-echo ============================================================
+echo                   计算机信息报�?echo ============================================================
 echo.
 
 :: 基本系统信息
 echo [系统概况]
 echo 计算机名    : %COMPUTERNAME%
-echo 用户名      : %USERNAME%
+echo 用户�?     : %USERNAME%
 echo 当前日期    : %DATE% %TIME%
+echo 工作目录    : %CD%
 echo.
 
-:: 操作系统信息（使用 systeminfo 过滤关键字段）
+:: 操作系统信息
 echo [操作系统]
-systeminfo | findstr /B /C:"OS 名称" /C:"OS 版本" /C:"系统类型" /C:"系统启动时间" /C:"处理器"
+systeminfo 2>/dev/null | findstr /B /C:"OS 名称" /C:"OS 版本" /C:"系统类型" /C:"系统启动时间" /C:"处理�?
 echo.
 
-:: CPU 详细信息
+:: CPU 信息
 echo [处理器]
-wmic cpu get name,numberofcores,numberoflogicalprocessors /format:list | findstr "="
+powershell -NoProfile -Command "Get-CimInstance Win32_Processor | Select-Object -First 1 Name,NumberOfCores,NumberOfLogicalProcessors | Format-List"
 echo.
 
 :: 物理内存
 echo [物理内存]
-for /f "tokens=2 delims==" %%a in ('wmic computersystem get totalphysicalmemory /format:list ^| find "="') do set "mem=%%a"
-set /a mem_mb=!mem!/1048576
-set /a mem_gb=!mem!/1073741824
-echo 总内存      : !mem_gb! GB (!mem_mb! MB)
+powershell -NoProfile -Command "$total=(Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory; Write-Host ('总内�? {0:N2} GB' -f ($total/1GB))"
 echo.
 
-:: 内存条详细信息（插槽、速度）
-wmic memorychip get capacity,speed,manufacturer,partnumber /format:list | findstr "="
+:: 内存条信�?echo [内存条信息]
+powershell -NoProfile -Command "Get-CimInstance Win32_PhysicalMemory | Select-Object Capacity,Speed,Manufacturer,PartNumber | Format-List"
 echo.
 
-:: 磁盘分区（仅本地硬盘，类型=3）
+:: 磁盘分区
 echo [磁盘分区]
-wmic logicaldisk where drivetype=3 get deviceid,volumename,size,freespace /format:table
+powershell -NoProfile -Command "Get-CimInstance Win32_LogicalDisk | Where-Object {$_.DriveType -eq 3} | Select-Object DeviceID,VolumeName,@{N='Size(GB)';E={[math]::Round($_.Size/1GB,2)}},@{N='FreeSpace(GB)';E={[math]::Round($_.FreeSpace/1GB,2)}} | Format-Table -AutoSize"
 echo.
 
 :: 网络 IP 地址
@@ -46,16 +42,15 @@ echo [网络 IP 地址]
 ipconfig | findstr "IPv4 地址"
 echo.
 
-:: 可选：MAC 地址
+:: 物理地址
 echo [物理地址]
 ipconfig /all | findstr "物理地址" | findstr /v "隧道"
 echo.
 
-:: 系统运行时间（从 systeminfo 中提取）
-for /f "tokens=2 delims=:" %%a in ('systeminfo ^| find "系统启动时间"') do set "boot=%%a"
-echo 系统启动时间: %boot%
+:: 系统运行时间
+echo [系统运行时间]
+powershell -NoProfile -Command "$boot=(Get-CimInstance Win32_OperatingSystem).LastBootUpTime; Write-Host ('系统启动时间: ' + $boot)"
 echo.
 
 echo ============================================================
-echo 信息收集完毕。
-pause
+echo 信息收集完毕�?pause
