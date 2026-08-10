@@ -90,7 +90,7 @@ func pipeOutput(prefix string, r io.Reader) {
 
 // startWithNewConsole 在独立的命令行窗口中启动程序。
 // cmdPath 是清理后的可执行文件路径，args 是额外的命令行参数。
-func startWithNewConsole(cmdPath, workDir, args string) (*exec.Cmd, error) {
+func startWithNewConsole(title, cmdPath, workDir, args string) (*exec.Cmd, error) {
 	ext := strings.ToLower(filepath.Ext(cmdPath))
 	hasSeparator := strings.Contains(cmdPath, "\\") || strings.Contains(cmdPath, "/")
 	var appName string
@@ -142,6 +142,9 @@ func startWithNewConsole(cmdPath, workDir, args string) (*exec.Cmd, error) {
 
 	var si windows.StartupInfo
 	si.Cb = uint32(unsafe.Sizeof(si))
+	if title != "" {
+		si.Title, _ = windows.UTF16PtrFromString(title)
+	}
 	var pi windows.ProcessInformation
 
 	if err := windows.CreateProcess(
@@ -180,7 +183,7 @@ func startApp(app App, foreground bool) (*exec.Cmd, error) {
 	cmdPath := filepath.Clean(app.Path)
 
 	if foreground && app.ShowConsole {
-		cmd, err := startWithNewConsole(cmdPath, workDir, app.Args)
+		cmd, err := startWithNewConsole(app.Name, cmdPath, workDir, app.Args)
 		if err != nil {
 			return nil, fmt.Errorf("启动失败: %v", err)
 		}
