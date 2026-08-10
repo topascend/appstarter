@@ -171,7 +171,13 @@ func startWithNewConsole(title, cmdPath, workDir, args string) (*exec.Cmd, error
 	return &exec.Cmd{Process: proc}, nil
 }
 
-func startApp(app App, foreground bool) (*exec.Cmd, error) {
+// procInfo 记录已启动进程及其是否拥有独立控制台窗口。
+type procInfo struct {
+	cmd        *exec.Cmd
+	ownConsole bool // true 代表有独立控制台窗口，关闭 appstarter 时不 kill
+}
+
+func startApp(app App, foreground bool) (*procInfo, error) {
 	workDir := filepath.Clean(app.WorkDir)
 	if workDir == "." {
 		var err error
@@ -189,7 +195,7 @@ func startApp(app App, foreground bool) (*exec.Cmd, error) {
 		}
 		logger.Printf("启动应用: %s, 路径: %s, 工作目录: %s, 显示控制台: true, PID: %d",
 			app.Name, cmdPath, workDir, cmd.Process.Pid)
-		return cmd, nil
+		return &procInfo{cmd: cmd, ownConsole: true}, nil
 	}
 
 	ext := strings.ToLower(filepath.Ext(cmdPath))
@@ -215,60 +221,47 @@ func startApp(app App, foreground bool) (*exec.Cmd, error) {
 	}
 	logger.Printf("启动应用: %s, 路径: %s, 工作目录: %s, 显示控制台: false, PID: %d",
 		app.Name, cmdPath, workDir, cmd.Process.Pid)
-	return cmd, nil
+	return &procInfo{cmd: cmd, ownConsole: false}, nil
 }
 
-// 启动全部应用，返回所有 *exec.Cmd 切片
-func startAllApps(foreground bool) ([]*exec.Cmd, error) {
-	var cmds []*exec.Cmd
+// 启动全部应用，返回所有 procInfo 切片
+func startAllApps(foreground bool) ([]*procInfo, error) {
+	var procs []*procInfo
 	for i, app := range apps {
 		if i > 0 && foreground {
 			time.Sleep(startDelay)
 		}
-		cmd, err := startApp(app, foreground)
+		pi, err := startApp(app, foreground)
 		if err != nil {
 			logger.Printf("启动 %s 失败: %v", app.Name, err)
 			continue
 		}
-		cmds = append(cmds, cmd)
+		procs = append(procs, pi)
 	}
-	if len(cmds) == 0 {
+	if len(procs) == 0 {
 		return nil, fmt.Errorf("没有成功启动任何应用")
 	}
-	return cmds, nil
-}
-
-// 终止所有进程
-func killAll(cmds []*exec.Cmd) {
-	for _, cmd := range cmds {
-		if cmd.Process != nil {
-			if err := cmd.Process.Kill(); err != nil {
-				logger.Printf("终止 PID %d 失败: %v", cmd.Process.Pid, err)
-			} else {
-				logger.Printf("已终止 PID %d", cmd.Process.Pid)
-			}
-		}
-	}
+	return procs, nil
 }
 
 // ============ 服务模式 ============
 
 type serviceHandler struct {
-	cmds []*exec.Cmd
+	procs []*procInfo
 }
 
 func (s *serviceHandler) Execute(args []string, r <-chan svc.ChangeRequest, changes chan<- svc.Status) (ssec bool, errno uint32) {
 	changes <- svc.Status{State: svc.StartPending}
 
 	// 启动所有应用
-	cmds, err := startAllApps(false)
+	procs, err := startAllApps(false)
 	if err != nil {
 		logger.Printf("服务启动应用失败: %v", err)
 		changes <- svc.Status{State: svc.Stopped, Win32ExitCode: 1}
 		return false, 1
 	}
-	s.cmds = cmds
-	logger.Printf("服务已启动，共运行 %d 个进程", len(cmds))
+	s.procs = procs
+	logger.Printf("服务已启动，共运行 %d 个进程", len(procs))
 
 	changes <- svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptShutdown}
 
@@ -277,9 +270,8 @@ func (s *serviceHandler) Execute(args []string, r <-chan svc.ChangeRequest, chan
 		c := <-r
 		switch c.Cmd {
 		case svc.Stop, svc.Shutdown:
-			logger.Printf("收到停止信号，正在终止所有子进程...")
+			logger.Printf("收到停止信号，已退出（子进程继续运行）")
 			changes <- svc.Status{State: svc.StopPending}
-			killAll(s.cmds)
 			changes <- svc.Status{State: svc.Stopped}
 			return false, 0
 		default:
@@ -305,7 +297,7 @@ func runForeground() {
 	}
 	logger.Printf("共加载 %d 个应用", len(apps))
 
-	cmds, err := startAllApps(true)
+	_, err := startAllApps(true)
 	if err != nil {
 		logger.Fatalf("启动应用失败: %v", err)
 	}
@@ -316,9 +308,7 @@ func runForeground() {
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 	<-sigChan
 
-	logger.Printf("收到中断信号，正在终止所有子进程...")
-	killAll(cmds)
-	logger.Printf("已退出")
+	logger.Printf("收到中断信号，已退出（子进程继续运行）")
 }
 
 // ============ 服务安装/卸载 ============
