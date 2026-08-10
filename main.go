@@ -25,7 +25,8 @@ import (
 // App 配置文件中的应用结构
 type App struct {
 	Name        string `json:"name"`         // 应用名称
-	Path        string `json:"path"`         // 可执行文件路径（.exe / .bat / .cmd）
+	Path        string `json:"path"`         // 可执行文件路径（.exe / .bat / .cmd，不含参数）
+	Args        string `json:"args"`         // 命令行参数（可选）
 	WorkDir     string `json:"workdir"`      // 工作目录（可选）
 	ShowConsole bool   `json:"show_console"` // 前台运行时是否打开独立命令行窗口显示输出
 }
@@ -87,27 +88,44 @@ func pipeOutput(prefix string, r io.Reader) {
 	}
 }
 
-// startWithNewConsole 在独立的命令行窗口中启动程序，输出会显示在该窗口中。
-// 使用 Windows CreateProcess 直接创建，避免 Go os/exec 把标准输出重定向到父进程。
-func startWithNewConsole(name, cmdPath, workDir string) (*exec.Cmd, error) {
+// startWithNewConsole 在独立的命令行窗口中启动程序。
+// cmdPath 是清理后的可执行文件路径，args 是额外的命令行参数。
+func startWithNewConsole(cmdPath, workDir, args string) (*exec.Cmd, error) {
 	ext := strings.ToLower(filepath.Ext(cmdPath))
-	var appName, cmdLine string
+	hasSeparator := strings.Contains(cmdPath, "\\") || strings.Contains(cmdPath, "/")
+	var appName string
+	var cmdLine string
+
+	fullArgs := cmdPath
+	if args != "" {
+		fullArgs += " " + args
+	}
+	quoteIfSpace := func(s string) string {
+		if strings.Contains(s, " ") {
+			return `"` + s + `"`
+		}
+		return s
+	}
 
 	if ext == ".bat" || ext == ".cmd" {
 		appName = `C:\Windows\System32\cmd.exe`
-		cmdLine = fmt.Sprintf(`cmd /c "%s"`, cmdPath)
+		cmdLine = fmt.Sprintf(`%s /c %s`, appName, quoteIfSpace(fullArgs))
+	} else if !hasSeparator {
+		// 无路径分隔符的命令名（如 wsl / go），交给 Windows 搜索 PATH
+		appName = ""
+		cmdLine = fullArgs
 	} else {
 		appName = cmdPath
-		if strings.Contains(cmdPath, " ") {
-			cmdLine = fmt.Sprintf(`"%s"`, cmdPath)
-		} else {
-			cmdLine = cmdPath
-		}
+		cmdLine = fullArgs
 	}
 
-	appNamePtr, err := windows.UTF16PtrFromString(appName)
-	if err != nil {
-		return nil, fmt.Errorf("转换应用名失败: %v", err)
+	var appNamePtr *uint16
+	if appName != "" {
+		ptr, err := windows.UTF16PtrFromString(appName)
+		if err != nil {
+			return nil, fmt.Errorf("转换应用名失败: %v", err)
+		}
+		appNamePtr = ptr
 	}
 	cmdLinePtr, err := windows.UTF16PtrFromString(cmdLine)
 	if err != nil {
@@ -124,7 +142,6 @@ func startWithNewConsole(name, cmdPath, workDir string) (*exec.Cmd, error) {
 
 	var si windows.StartupInfo
 	si.Cb = uint32(unsafe.Sizeof(si))
-	// 不设置 STARTF_USESTDHANDLES，让新控制台使用默认标准句柄
 	var pi windows.ProcessInformation
 
 	if err := windows.CreateProcess(
@@ -163,7 +180,7 @@ func startApp(app App, foreground bool) (*exec.Cmd, error) {
 	cmdPath := filepath.Clean(app.Path)
 
 	if foreground && app.ShowConsole {
-		cmd, err := startWithNewConsole(app.Name, cmdPath, workDir)
+		cmd, err := startWithNewConsole(cmdPath, workDir, app.Args)
 		if err != nil {
 			return nil, fmt.Errorf("启动失败: %v", err)
 		}
@@ -174,10 +191,11 @@ func startApp(app App, foreground bool) (*exec.Cmd, error) {
 
 	ext := strings.ToLower(filepath.Ext(cmdPath))
 	var cmd *exec.Cmd
+	argList := strings.Fields(app.Args)
 	if ext == ".bat" || ext == ".cmd" {
 		cmd = exec.Command("cmd", "/c", cmdPath)
 	} else {
-		cmd = exec.Command(cmdPath)
+		cmd = exec.Command(cmdPath, argList...)
 	}
 	cmd.Dir = workDir
 
